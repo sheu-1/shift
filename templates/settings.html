@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Shift Settings — RosterLine{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Administration</p>
+    <h1>Shift settings</h1>
+    <p class="hero-sub">
+      Configure each shift's <strong>label</strong>, <strong>hours</strong>, and
+      <strong>worker capacity</strong>. Use the Leave section below to mark which days
+      each worker is off on leave — those days are excluded from scheduling automatically.
+    </p>
+  </div>
+</section>
+
+{# ── Shift configuration ───────────────────────────────────────────────── #}
+<form action="{{ url_for('settings_save') }}" method="post">
+  <div class="settings-grid">
+    {% for cfg in configs %}
+    <div class="settings-card settings-card-{{ cfg.code|lower }}">
+      <div class="settings-card-header">
+        <span class="settings-badge">{{ cfg.code }}</span>
+        <h2>{{ cfg.label }}</h2>
+      </div>
+
+      <div class="settings-fields">
+        <div class="settings-field">
+          <label for="{{ cfg.code }}_label">Shift label</label>
+          <input type="text" id="{{ cfg.code }}_label"
+                 name="shift_{{ cfg.code }}_label"
+                 value="{{ cfg.label }}" placeholder="e.g. AM Shift" required>
+        </div>
+
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label for="{{ cfg.code }}_start">Start time</label>
+            <input type="text" id="{{ cfg.code }}_start"
+                   name="shift_{{ cfg.code }}_start_time"
+                   value="{{ cfg.start_time }}" placeholder="e.g. 6:00 AM">
+          </div>
+          <div class="settings-field">
+            <label for="{{ cfg.code }}_end">End time</label>
+            <input type="text" id="{{ cfg.code }}_end"
+                   name="shift_{{ cfg.code }}_end_time"
+                   value="{{ cfg.end_time }}" placeholder="e.g. 3:00 PM">
+          </div>
+        </div>
+
+        <div class="settings-field settings-capacity-field">
+          <label for="{{ cfg.code }}_capacity">
+            Worker capacity
+            <span class="settings-hint">workers assigned to this shift per day</span>
+          </label>
+          <div class="capacity-input-wrap">
+            <button type="button" class="capacity-btn"
+                    onclick="stepCapacity('{{ cfg.code }}_capacity', -1)">−</button>
+            <input type="number" id="{{ cfg.code }}_capacity"
+                   name="shift_{{ cfg.code }}_capacity"
+                   value="{{ cfg.capacity }}" min="1" max="999"
+                   class="capacity-input" required>
+            <button type="button" class="capacity-btn"
+                    onclick="stepCapacity('{{ cfg.code }}_capacity', 1)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="settings-footer">
+    <div class="settings-summary">
+      Daily total capacity:
+      <strong id="total-capacity">
+        {% set ns = namespace(v=0) %}
+        {% for cfg in configs %}{% set ns.v = ns.v + cfg.capacity %}{% endfor %}
+        {{ ns.v }}
+      </strong>
+      worker(s)
+    </div>
+    <button type="submit" class="btn btn-primary">Save shift settings</button>
+  </div>
+</form>
+
+{# ── Leave Management ──────────────────────────────────────────────────── #}
+<section style="margin-top: 52px;">
+  <div class="table-head">
+    <h2>Worker Leave Days</h2>
+    <p style="margin:6px 0 20px; color:var(--text-muted); font-size:.88rem;">
+      Tick the days a worker is on approved leave. Leave days are excluded from shift
+      allocation and the worker will be marked <strong>LEAVE</strong> on those days.
+    </p>
+  </div>
+
+  <form action="{{ url_for('settings_leave') }}" method="post">
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table class="worker-table leave-table">
+        <thead>
+          <tr>
+            <th style="min-width:200px">Worker</th>
+            {% for d in days %}
+            <th class="leave-day-col">{{ d[:3] }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in workers %}
+          {% set wleaves = w.leave_days.split(',') if w.leave_days else [] %}
+          <tr>
+            <td class="worker-name-cell">{{ w.name }}</td>
+            {% for d in days %}
+            <td class="leave-check-cell">
+              <label class="cb-wrap">
+                <input type="checkbox"
+                       name="leave_{{ w.id }}_{{ d }}"
+                       class="cb-input"
+                       {% if d.strip() in wleaves %}checked{% endif %}>
+                <span class="cb-mark"></span>
+              </label>
+            </td>
+            {% endfor %}
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="empty-state">No workers found — add them in the Workers tab.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex; justify-content:flex-end; margin-top:16px;">
+      <button type="submit" class="btn btn-primary">Save leave settings</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

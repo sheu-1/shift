@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Workers — RosterLine{% endblock %}
+
+{% block content %}
+<section class="panel-grid">
+  <div class="panel">
+    <h2>Add a worker</h2>
+    <p class="panel-sub">Add one name at a time.</p>
+    <form action="{{ url_for('add_worker') }}" method="post" class="stack-form">
+      <label for="name">Full name</label>
+      <input type="text" id="name" name="name" placeholder="e.g. Amina Wanjiru" autocomplete="off" required>
+      <button type="submit" class="btn btn-primary">Add worker</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Import from Excel</h2>
+    <p class="panel-sub">Upload a .xlsx file with a <code>Name</code> column.</p>
+    <form action="{{ url_for('upload_workers') }}" method="post" enctype="multipart/form-data" class="stack-form">
+      <label for="file">Excel file</label>
+      <input type="file" id="file" name="file" accept=".xlsx,.xlsm" required>
+      <button type="submit" class="btn btn-primary">Upload &amp; import</button>
+    </form>
+    <a class="template-link" href="{{ url_for('download_template') }}">Download blank template</a>
+  </div>
+</section>
+
+<section class="table-section">
+  <div class="table-head">
+    <h2>All workers <span class="muted">({{ all_workers|length }})</span></h2>
+  </div>
+
+  {% if all_workers %}
+  <div class="table-wrap">
+    <table class="worker-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Current shift</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in all_workers %}
+        <tr>
+          <td>{{ w.name }}</td>
+          <td>
+            {% if w.shift %}
+              <span class="badge badge-{{ w.shift|lower }}">{{ shift_meta[w.shift].label }}</span>
+            {% else %}
+              <span class="badge badge-unassigned">Unassigned</span>
+            {% endif %}
+          </td>
+          <td class="table-actions">
+            <form action="{{ url_for('delete_worker', worker_id=w.id) }}" method="post"
+                  onsubmit="return confirm('Remove {{ w.name }}?');">
+              <button type="submit" class="btn btn-text btn-danger">Remove</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">No workers yet — add one above or import a spreadsheet to get started.</p>
+  {% endif %}
+</section>
+{% endblock %}

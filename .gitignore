@@ -1,0 +1,70 @@
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ── Flask / SQLite database (runtime data — never commit) ─────────────────
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Credentials & secrets ─────────────────────────────────────────────────
+# Store secrets here locally; these files are NEVER pushed to GitHub
+.env
+.env.*
+.env.local
+.env.production
+.env.staging
+secrets.py
+secrets.json
+credentials.json
+config_local.py
+service_account.json
+
+# Supabase / API keys
+supabase.json
+*.key
+*.pem
+*.p12
+
+# ── OS & editor junk ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Build / distribution artefacts ────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# ── Pytest / coverage ─────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Uploaded / exported files (generated at runtime) ─────────────────────
+*.xlsx
+*.csv
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+*.log

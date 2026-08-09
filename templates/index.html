@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — RosterLine{% endblock %}
+
+{% block content %}
+
+{# ── Hero ─────────────────────────────────────────────────────────────── #}
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">{{ today }}</p>
+    <h1>Weekly Roster</h1>
+    <p class="hero-sub">
+      {{ total }} worker{{ '' if total == 1 else 's' }} on file.
+      Auto-allocate assigns every worker to a shift every day with
+      <strong>1 day off</strong> per person per week.
+    </p>
+  </div>
+  <div class="hero-actions">
+    <form action="{{ url_for('allocate') }}" method="post">
+      <input type="hidden" name="view" value="{{ view_mode }}">
+      <input type="hidden" name="day"  value="{{ current_day }}">
+      <button type="submit" class="btn btn-primary">⚡ Auto-allocate week</button>
+    </form>
+    <a href="{{ url_for('export_schedule') }}" class="btn btn-ghost">Export to Excel</a>
+    <form action="{{ url_for('reset') }}" method="post"
+          onsubmit="return confirm('Clear all weekly assignments?');">
+      <input type="hidden" name="view" value="{{ view_mode }}">
+      <input type="hidden" name="day"  value="{{ current_day }}">
+      <button type="submit" class="btn btn-text">Clear week</button>
+    </form>
+  </div>
+</section>
+
+{# ── View-mode toggle ─────────────────────────────────────────────────── #}
+<div class="view-toggle-bar">
+  <a href="{{ url_for('index', view='daily',  day=current_day) }}"
+     class="vtog {{ 'vtog-active' if view_mode=='daily' }}">
+    📅 Daily view
+  </a>
+  <a href="{{ url_for('index', view='weekly', day=current_day) }}"
+     class="vtog {{ 'vtog-active' if view_mode=='weekly' }}">
+    🗓 Weekly grid
+  </a>
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════ #}
+{# DAILY VIEW                                                             #}
+{# ═══════════════════════════════════════════════════════════════════════ #}
+{% if view_mode == 'daily' %}
+
+{# Weekday tabs #}
+<div class="day-tabs-wrap">
+  <nav class="day-tabs" aria-label="Select day">
+    {% for d in days %}
+    <a href="{{ url_for('index', view='daily', day=d) }}"
+       class="day-tab {{ 'day-tab-active' if current_day == d }}"
+       id="tab-{{ d }}">
+      <span class="dt-short">{{ d[:3] }}</span>
+      <span class="dt-long">{{ d }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+</div>
+
+{# Shift timeline #}
+<section class="timeline-wrap" aria-label="24-hour shift timeline">
+  <div class="timeline">
+    {% for cfg in configs %}
+    <div class="timeline-segment seg-{{ cfg.code|lower }}">
+      <span class="seg-label">{{ cfg.code }}</span>
+      <span class="seg-time">{{ cfg.start_time }}–{{ cfg.end_time }}</span>
+    </div>
+    {% endfor %}
+    <div class="timeline-now" id="timeline-now" title="Right now">
+      <span class="now-dot"></span>
+    </div>
+  </div>
+</section>
+
+{# Shift cards #}
+<section class="board" style="--shift-count:{{ configs|length }}">
+  {% for cfg in configs %}
+  <div class="shift-card shift-{{ cfg.code|lower }}">
+    <div class="shift-card-head">
+      <div>
+        <h2>{{ cfg.label }}</h2>
+        <p class="shift-time">{{ cfg.start_time }} – {{ cfg.end_time }}</p>
+      </div>
+      <div class="shift-card-meta">
+        <span class="shift-count">{{ groups[cfg.code]|length }}</span>
+        <span class="shift-capacity">/ {{ cfg.capacity }}</span>
+      </div>
+    </div>
+    <ul class="worker-list">
+      {% for w in groups[cfg.code]|sort(attribute='name') %}
+        <li class="worker-chip">{{ w.name }}</li>
+      {% else %}
+        <li class="worker-empty">No one assigned yet</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</section>
+
+{# Status buckets #}
+<div class="status-row">
+  {% if off_workers %}
+  <section class="status-bucket">
+    <h3 class="bucket-head">
+      <span class="bucket-dot dot-off"></span>
+      Day Off <span class="muted">({{ off_workers|length }})</span>
+    </h3>
+    <ul class="worker-list worker-list-inline">
+      {% for w in off_workers|sort(attribute='name') %}
+        <li class="worker-chip chip-off">{{ w.name }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if leave_workers %}
+  <section class="status-bucket">
+    <h3 class="bucket-head">
+      <span class="bucket-dot dot-leave"></span>
+      On Leave <span class="muted">({{ leave_workers|length }})</span>
+    </h3>
+    <ul class="worker-list worker-list-inline">
+      {% for w in leave_workers|sort(attribute='name') %}
+        <li class="worker-chip chip-leave">{{ w.name }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if unassigned %}
+  <section class="status-bucket">
+    <h3 class="bucket-head">
+      <span class="bucket-dot dot-idle"></span>
+      Idle / Unassigned <span class="muted">({{ unassigned|length }})</span>
+    </h3>
+    <ul class="worker-list worker-list-inline">
+      {% for w in unassigned|sort(attribute='name') %}
+        <li class="worker-chip worker-chip-muted">{{ w.name }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════ #}
+{# WEEKLY GRID VIEW                                                        #}
+{# ═══════════════════════════════════════════════════════════════════════ #}
+{% else %}
+
+<section class="weekly-table-wrap">
+  <div class="table-overflow">
+    <table class="weekly-table">
+      <thead>
+        <tr>
+          <th class="wt-name-col">Worker</th>
+          {% for d in days %}
+          <th class="wt-day-col {{ 'wt-today' if d == today_weekday }}">{{ d }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in weekly_schedule %}
+        <tr>
+          <td class="wt-name">{{ row.worker.name }}</td>
+          {% for d in days %}
+          {% set code = row.days[d] %}
+          <td class="wt-cell">
+            {% if code == 'AM' %}
+              <span class="wcell wcell-am">AM</span>
+            {% elif code == 'SWING' %}
+              <span class="wcell wcell-swing">SWING</span>
+            {% elif code == 'PM' %}
+              <span class="wcell wcell-pm">PM</span>
+            {% elif code == 'OFF' %}
+              <span class="wcell wcell-off">OFF</span>
+            {% elif code == 'LEAVE' %}
+              <span class="wcell wcell-leave">LEAVE</span>
+            {% else %}
+              <span class="wcell wcell-none">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="empty-state">
+            No workers yet — add them in the Workers tab, then run Auto-allocate.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endif %}
+{% endblock %}
