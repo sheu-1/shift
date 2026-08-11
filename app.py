@@ -48,8 +48,12 @@ init_db()
 
 def get_shift_configs():
     if not supabase: return []
-    res = supabase.table("shift_config").select("*").order("sort_order").execute()
-    return [SimpleNamespace(**d) for d in res.data]
+    try:
+        res = supabase.table("shift_config").select("*").order("sort_order").execute()
+        return [SimpleNamespace(**d) for d in res.data]
+    except Exception as e:
+        print(f"Error fetching shift configs: {e}")
+        return []
 
 def shift_meta_dict():
     return {s.code: s for s in get_shift_configs()}
@@ -62,13 +66,18 @@ def worker_leave_set(worker):
 
 def get_all_workers_with_assignments():
     if not supabase: return []
-    res = supabase.table("worker").select("*, assignments:assignment(*)").order("name").execute()
-    workers = []
-    for d in res.data:
-        w = SimpleNamespace(**d)
-        w.assignments = [SimpleNamespace(**a) for a in getattr(w, 'assignments', [])]
-        workers.append(w)
-    return workers
+    try:
+        res = supabase.table("worker").select("*, assignments:assignment(*)").order("name").execute()
+        workers = []
+        for d in res.data:
+            w = SimpleNamespace(**d)
+            w.assignments = [SimpleNamespace(**a) for a in getattr(w, 'assignments', [])]
+            workers.append(w)
+        return workers
+    except Exception as e:
+        print(f"Error fetching workers: {e}")
+        return []
+
 
 def grouped_workers_for_day(day):
     """Return (groups, unassigned, off_workers, leave_workers, all_workers) for a given weekday."""
