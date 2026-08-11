@@ -1,4 +1,6 @@
 Flask==3.0.3
 supabase==2.3.4
 openpyxl==3.1.5
+httpx<0.28.0
+
 
