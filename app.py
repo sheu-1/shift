@@ -333,23 +333,31 @@ def add_worker():
         flash(f'"{name}" is already on the list.', "warning")
     else:
         if supabase:
-            supabase.table("worker").insert({"name": name}).execute()
-        flash(f'"{name}" added.', "success")
+            try:
+                supabase.table("worker").insert({"name": name}).execute()
+                flash(f'"{name}" added.', "success")
+            except Exception as e:
+                flash(f"Database error adding worker: {e}", "danger")
+        else:
+            flash("Supabase is not configured.", "danger")
     return redirect(url_for("workers"))
 
 
 @app.route("/workers/delete/<int:worker_id>", methods=["POST"])
 def delete_worker(worker_id):
     if supabase:
-        # Get worker to show name in flash
-        res = supabase.table("worker").select("name").eq("id", worker_id).execute()
-        if res.data:
-            name = res.data[0]["name"]
-            supabase.table("worker").delete().eq("id", worker_id).execute()
-            flash(f'"{name}" removed.', "info")
-        else:
-            flash("Worker not found.", "warning")
+        try:
+            res = supabase.table("worker").select("name").eq("id", worker_id).execute()
+            if res.data:
+                name = res.data[0]["name"]
+                supabase.table("worker").delete().eq("id", worker_id).execute()
+                flash(f'"{name}" removed.', "info")
+            else:
+                flash("Worker not found.", "warning")
+        except Exception as e:
+            flash(f"Database error deleting worker: {e}", "danger")
     return redirect(url_for("workers"))
+
 
 
 @app.route("/workers/upload", methods=["POST"])
