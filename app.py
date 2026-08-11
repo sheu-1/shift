@@ -2,62 +2,29 @@ import io
 import os
 import random
 from datetime import datetime, date
+from types import SimpleNamespace
 
 from flask import (
     Flask, render_template, request, redirect, url_for, flash, send_file
 )
-from flask_sqlalchemy import SQLAlchemy
+from supabase import create_client, Client
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 app = Flask(__name__)
 
-# Fallback to local SQLite if DATABASE_URL is not set (e.g. for local development)
-database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    # Flask-SQLAlchemy requires 'postgresql://' instead of 'postgres://' (common in Heroku/Render/etc.)
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-else:
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///shifts.db"
-
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-key-in-production")
 
-db = SQLAlchemy(app)
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+
+supabase: Client = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    print("WARNING: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set!")
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-# ---------------------------------------------------------------- models --
-
-class ShiftConfig(db.Model):
-    """Administrator-configurable shift definition."""
-    id         = db.Column(db.Integer, primary_key=True)
-    code       = db.Column(db.String(10),  unique=True, nullable=False)
-    label      = db.Column(db.String(50),  nullable=False)
-    start_time = db.Column(db.String(20),  nullable=False)
-    end_time   = db.Column(db.String(20),  nullable=False)
-    capacity   = db.Column(db.Integer,     nullable=False, default=1)
-    sort_order = db.Column(db.Integer,     nullable=False, default=0)
-
-
-class Worker(db.Model):
-    id         = db.Column(db.Integer, primary_key=True)
-    name       = db.Column(db.String(120), nullable=False)
-    shift      = db.Column(db.String(10),  nullable=True)   # kept for backward compat
-    leave_days = db.Column(db.String(200), nullable=True, default="")
-    added_at   = db.Column(db.DateTime,    default=datetime.utcnow)
-
-
-class Assignment(db.Model):
-    """One row = one worker's shift_code for one day of the week."""
-    id         = db.Column(db.Integer, primary_key=True)
-    worker_id  = db.Column(db.Integer, db.ForeignKey("worker.id", ondelete="CASCADE"), nullable=False)
-    day        = db.Column(db.String(15), nullable=False)   # e.g. "Monday"
-    shift_code = db.Column(db.String(10), nullable=True)    # AM / SWING / PM / OFF / LEAVE / None
-    worker     = db.relationship("Worker", backref=db.backref("assignments", lazy=True, cascade="all, delete-orphan"))
-
 
 _DEFAULT_SHIFTS = [
     dict(code="AM",    label="AM Shift",    start_time="6:00 AM",  end_time="3:00 PM",  capacity=3, sort_order=0),
@@ -65,42 +32,49 @@ _DEFAULT_SHIFTS = [
     dict(code="PM",    label="PM Shift",    start_time="3:00 PM",  end_time="12:00 AM", capacity=3, sort_order=2),
 ]
 
-with app.app_context():
-    db.create_all()
-
-    # Auto-migrate: add leave_days if it doesn't exist yet
+def init_db():
+    if not supabase:
+        return
     try:
-        db.session.execute(db.text("ALTER TABLE worker ADD COLUMN leave_days VARCHAR(200) DEFAULT ''"))
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
+        res = supabase.table("shift_config").select("id", count="exact").execute()
+        if res.count == 0:
+            supabase.table("shift_config").insert(_DEFAULT_SHIFTS).execute()
+    except Exception as e:
+        print(f"Error seeding shifts: {e}")
 
-    # Seed default shift configs
-    if ShiftConfig.query.count() == 0:
-        for s in _DEFAULT_SHIFTS:
-            db.session.add(ShiftConfig(**s))
-        db.session.commit()
-
+init_db()
 
 # ------------------------------------------------------------- utilities --
 
 def get_shift_configs():
-    return ShiftConfig.query.order_by(ShiftConfig.sort_order.asc()).all()
+    if not supabase: return []
+    res = supabase.table("shift_config").select("*").order("sort_order").execute()
+    return [SimpleNamespace(**d) for d in res.data]
 
 def shift_meta_dict():
     return {s.code: s for s in get_shift_configs()}
 
 def worker_leave_set(worker):
     """Return set of leave day names for a worker."""
-    if not worker.leave_days:
+    if not getattr(worker, 'leave_days', None):
         return set()
     return {d.strip() for d in worker.leave_days.split(",") if d.strip()}
+
+def get_all_workers_with_assignments():
+    if not supabase: return []
+    res = supabase.table("worker").select("*, assignments:assignment(*)").order("name").execute()
+    workers = []
+    for d in res.data:
+        w = SimpleNamespace(**d)
+        w.assignments = [SimpleNamespace(**a) for a in getattr(w, 'assignments', [])]
+        workers.append(w)
+    return workers
 
 def grouped_workers_for_day(day):
     """Return (groups, unassigned, off_workers, leave_workers, all_workers) for a given weekday."""
     configs    = get_shift_configs()
     codes      = [c.code for c in configs]
-    all_workers = Worker.query.order_by(Worker.name.asc()).all()
+    all_workers = get_all_workers_with_assignments()
 
     groups        = {code: [] for code in codes}
     unassigned    = []
@@ -108,7 +82,7 @@ def grouped_workers_for_day(day):
     leave_workers = []
 
     for w in all_workers:
-        assign = Assignment.query.filter_by(worker_id=w.id, day=day).first()
+        assign = next((a for a in w.assignments if a.day == day), None)
         if assign:
             if assign.shift_code in groups:
                 groups[assign.shift_code].append(w)
@@ -128,9 +102,9 @@ def grouped_workers_for_day(day):
     return groups, unassigned, off_workers, leave_workers, all_workers
 
 def name_exists(name):
-    return Worker.query.filter(
-        db.func.lower(Worker.name) == name.strip().lower()
-    ).first() is not None
+    if not supabase: return False
+    res = supabase.table("worker").select("id").ilike("name", name.strip()).execute()
+    return len(res.data) > 0
 
 
 # ----------------------------------------------------------------- views --
@@ -184,7 +158,11 @@ def index():
 
 @app.route("/allocate", methods=["POST"])
 def allocate():
-    workers = Worker.query.all()
+    if not supabase:
+        flash("Supabase not configured.", "danger")
+        return redirect(url_for("index"))
+        
+    workers = get_all_workers_with_assignments()
     if not workers:
         flash("Add some workers first, then allocate shifts.", "warning")
         return redirect(url_for("index"))
@@ -192,8 +170,7 @@ def allocate():
     configs = get_shift_configs()
 
     # Wipe existing weekly assignments
-    Assignment.query.delete()
-    db.session.flush()
+    supabase.table("assignment").delete().neq("id", -1).execute()
 
     # Build per-day availability counts (excluding leave days)
     day_available = {}
@@ -205,12 +182,14 @@ def allocate():
     random.shuffle(workers_list)
 
     off_day_map = {}   # worker_id -> chosen OFF day
+    
+    new_assignments = []
 
     # 1. Assign LEAVE rows and choose each worker's 1 day off
     for w in workers_list:
         leaves = worker_leave_set(w)
         for d in leaves:
-            db.session.add(Assignment(worker_id=w.id, day=d, shift_code="LEAVE"))
+            new_assignments.append({"worker_id": w.id, "day": d, "shift_code": "LEAVE"})
 
         available = [d for d in DAYS if d not in leaves]
         if not available:
@@ -220,7 +199,7 @@ def allocate():
         off_day = max(available, key=lambda d: day_available[d])
         off_day_map[w.id] = off_day
         day_available[off_day] -= 1
-        db.session.add(Assignment(worker_id=w.id, day=off_day, shift_code="OFF"))
+        new_assignments.append({"worker_id": w.id, "day": off_day, "shift_code": "OFF"})
 
     # 2. Day-by-day shift allocation
     for d in DAYS:
@@ -234,14 +213,16 @@ def allocate():
         for cfg in configs:
             for _ in range(cfg.capacity):
                 if idx < len(active):
-                    db.session.add(Assignment(worker_id=active[idx].id, day=d, shift_code=cfg.code))
+                    new_assignments.append({"worker_id": active[idx].id, "day": d, "shift_code": cfg.code})
                     idx += 1
         # Remaining actives are "idle/unassigned" that day
         while idx < len(active):
-            db.session.add(Assignment(worker_id=active[idx].id, day=d, shift_code=None))
+            new_assignments.append({"worker_id": active[idx].id, "day": d, "shift_code": None})
             idx += 1
 
-    db.session.commit()
+    if new_assignments:
+        supabase.table("assignment").insert(new_assignments).execute()
+
     flash("Weekly shifts auto-allocated — every worker has 1 day off.", "success")
 
     view  = request.form.get("view", "daily")
@@ -251,8 +232,8 @@ def allocate():
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    Assignment.query.delete()
-    db.session.commit()
+    if supabase:
+        supabase.table("assignment").delete().neq("id", -1).execute()
     flash("All weekly shift assignments cleared.", "info")
     view = request.form.get("view", "daily")
     cday = request.form.get("day", date.today().strftime("%A"))
@@ -264,7 +245,7 @@ def reset():
 @app.route("/settings")
 def settings():
     configs = get_shift_configs()
-    workers = Worker.query.order_by(Worker.name.asc()).all()
+    workers = get_all_workers_with_assignments()
     return render_template("settings.html", configs=configs, workers=workers, days=DAYS)
 
 
@@ -289,17 +270,19 @@ def settings_save():
         except ValueError:
             errors.append(f"Capacity for {cfg.code} must be a positive integer.")
             continue
-
-        cfg.label      = label
-        cfg.start_time = start_time
-        cfg.end_time   = end_time
-        cfg.capacity   = cap
+            
+        if supabase:
+            supabase.table("shift_config").update({
+                "label": label,
+                "start_time": start_time,
+                "end_time": end_time,
+                "capacity": cap
+            }).eq("id", cfg.id).execute()
 
     if errors:
         for e in errors:
             flash(e, "warning")
     else:
-        db.session.commit()
         flash("Shift settings saved successfully.", "success")
 
     return redirect(url_for("settings"))
@@ -307,11 +290,13 @@ def settings_save():
 
 @app.route("/settings/leave", methods=["POST"])
 def settings_leave():
-    workers = Worker.query.all()
+    workers = get_all_workers_with_assignments()
     for w in workers:
         chosen = [d for d in DAYS if request.form.get(f"leave_{w.id}_{d}")]
-        w.leave_days = ",".join(chosen)
-    db.session.commit()
+        leave_str = ",".join(chosen)
+        if supabase:
+            supabase.table("worker").update({"leave_days": leave_str}).eq("id", w.id).execute()
+            
     flash("Leave settings saved successfully.", "success")
     return redirect(url_for("settings"))
 
@@ -320,7 +305,7 @@ def settings_leave():
 
 @app.route("/workers")
 def workers():
-    all_workers = Worker.query.order_by(Worker.name.asc()).all()
+    all_workers = get_all_workers_with_assignments()
     # For the badge column use Monday as a reference day
     groups, _, _, _, _ = grouped_workers_for_day("Monday")
     return render_template(
@@ -338,18 +323,23 @@ def add_worker():
     elif name_exists(name):
         flash(f'"{name}" is already on the list.', "warning")
     else:
-        db.session.add(Worker(name=name))
-        db.session.commit()
+        if supabase:
+            supabase.table("worker").insert({"name": name}).execute()
         flash(f'"{name}" added.', "success")
     return redirect(url_for("workers"))
 
 
 @app.route("/workers/delete/<int:worker_id>", methods=["POST"])
 def delete_worker(worker_id):
-    w = Worker.query.get_or_404(worker_id)
-    db.session.delete(w)
-    db.session.commit()
-    flash(f'"{w.name}" removed.', "info")
+    if supabase:
+        # Get worker to show name in flash
+        res = supabase.table("worker").select("name").eq("id", worker_id).execute()
+        if res.data:
+            name = res.data[0]["name"]
+            supabase.table("worker").delete().eq("id", worker_id).execute()
+            flash(f'"{name}" removed.', "info")
+        else:
+            flash("Worker not found.", "warning")
     return redirect(url_for("workers"))
 
 
@@ -382,6 +372,9 @@ def upload_workers():
 
     added, skipped = 0, 0
     seen = set()
+    
+    new_workers = []
+    
     for row in data_rows:
         if not row or name_col >= len(row):
             continue
@@ -396,10 +389,12 @@ def upload_workers():
             skipped += 1
             continue
         seen.add(key)
-        db.session.add(Worker(name=name))
+        new_workers.append({"name": name})
         added += 1
 
-    db.session.commit()
+    if new_workers and supabase:
+        supabase.table("worker").insert(new_workers).execute()
+
     msg = f"Imported {added} worker(s)."
     if skipped:
         msg += f" Skipped {skipped} duplicate/blank row(s)."
@@ -427,7 +422,7 @@ def download_template():
 
 @app.route("/export")
 def export_schedule():
-    all_workers = Worker.query.order_by(Worker.name.asc()).all()
+    all_workers = get_all_workers_with_assignments()
 
     wb    = Workbook()
     sheet = wb.active
