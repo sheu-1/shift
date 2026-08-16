@@ -170,7 +170,7 @@ def allocate():
     if not supabase:
         flash("Supabase not configured.", "danger")
         return redirect(url_for("index"))
-        
+
     workers = get_all_workers_with_assignments()
     if not workers:
         flash("Add some workers first, then allocate shifts.", "warning")
@@ -181,61 +181,80 @@ def allocate():
     # Wipe existing weekly assignments
     supabase.table("assignment").delete().neq("id", -1).execute()
 
-    # Build per-day availability counts (excluding leave days)
-    day_available = {}
-    for d in DAYS:
-        day_available[d] = sum(1 for w in workers if d not in worker_leave_set(w))
-
-    # Shuffle for fairness
     workers_list = list(workers)
-    random.shuffle(workers_list)
+    random.shuffle(workers_list)  # initial fairness shuffle
 
-    off_day_map = {}   # worker_id -> chosen OFF day
-    
+    # ── Pre-compute leave sets once ──────────────────────────────────────
+    leave_map = {w.id: worker_leave_set(w) for w in workers_list}
+
     new_assignments = []
 
-    # 1. Assign LEAVE rows and choose each worker's 1 day off
+    # ── Step 1: Insert LEAVE rows ────────────────────────────────────────
     for w in workers_list:
-        leaves = worker_leave_set(w)
-        for d in leaves:
+        for d in leave_map[w.id]:
             new_assignments.append({"worker_id": w.id, "day": d, "shift_code": "LEAVE"})
 
-        available = [d for d in DAYS if d not in leaves]
-        if not available:
-            continue   # fully on leave
+    # ── Step 2: Spread OFF days evenly across the week ───────────────────
+    # Always pick the day that currently has the fewest offs so that no
+    # single day ends up short-staffed (6/7 days worked per person).
+    day_off_count = {d: 0 for d in DAYS}
+    off_day_map = {}   # worker_id -> off_day
 
-        # Pick the day with the most available workers (most room to absorb the absence)
-        off_day = max(available, key=lambda d: day_available[d])
-        off_day_map[w.id] = off_day
-        day_available[off_day] -= 1
-        new_assignments.append({"worker_id": w.id, "day": off_day, "shift_code": "OFF"})
+    for w in workers_list:
+        available_days = [d for d in DAYS if d not in leave_map[w.id]]
+        if not available_days:
+            continue  # fully on leave
+        # Pick day with fewest offs; random tiebreak for variety
+        best = min(available_days, key=lambda d: (day_off_count[d], random.random()))
+        off_day_map[w.id] = best
+        day_off_count[best] += 1
+        new_assignments.append({"worker_id": w.id, "day": best, "shift_code": "OFF"})
 
-    # 2. Day-by-day shift allocation
+    # ── Step 3: Day-by-day shift assignment with cross-week balancing ─────
+    # shift_tally tracks how many of each shift each worker has had this
+    # week so far.  When filling a slot, the worker with the fewest
+    # assignments of that shift type wins → shifts rotate naturally.
+    shift_tally = {
+        w.id: {cfg.code: 0 for cfg in configs} for w in workers_list
+    }
+
     for d in DAYS:
+        # Workers available to work today
         active = [
-            w for w in workers
-            if d not in worker_leave_set(w) and off_day_map.get(w.id) != d
+            w for w in workers_list
+            if d not in leave_map[w.id] and off_day_map.get(w.id) != d
         ]
-        random.shuffle(active)
 
-        idx = 0
+        # Build slot list and shuffle so no shift type always drafts first
+        slots = []
         for cfg in configs:
-            for _ in range(cfg.capacity):
-                if idx < len(active):
-                    new_assignments.append({"worker_id": active[idx].id, "day": d, "shift_code": cfg.code})
-                    idx += 1
-        # Remaining actives are "idle/unassigned" that day
-        while idx < len(active):
-            new_assignments.append({"worker_id": active[idx].id, "day": d, "shift_code": None})
-            idx += 1
+            slots.extend([cfg.code] * cfg.capacity)
+        random.shuffle(slots)
+
+        pool = list(active)   # workers still unassigned today
+        random.shuffle(pool)  # random start for fair tiebreaks
+
+        for shift_code in slots:
+            if not pool:
+                break
+            # Worker with fewest assignments of this shift gets it;
+            # random tiebreak ensures variety run-to-run
+            pool.sort(key=lambda w: (shift_tally[w.id][shift_code], random.random()))
+            chosen = pool.pop(0)
+            new_assignments.append({"worker_id": chosen.id, "day": d, "shift_code": shift_code})
+            shift_tally[chosen.id][shift_code] += 1
+
+        # Workers left in pool have no slot this day → idle/unassigned
+        for w in pool:
+            new_assignments.append({"worker_id": w.id, "day": d, "shift_code": None})
 
     if new_assignments:
         supabase.table("assignment").insert(new_assignments).execute()
 
-    flash("Weekly shifts auto-allocated — every worker has 1 day off.", "success")
+    flash("Shifts allocated — 1 day off per worker, workload and shifts balanced.", "success")
 
-    view  = request.form.get("view", "weekly")
-    cday  = request.form.get("day", date.today().strftime("%A"))
+    view = request.form.get("view", "weekly")
+    cday = request.form.get("day", date.today().strftime("%A"))
     return redirect(url_for("index", view=view, day=cday))
 
 
