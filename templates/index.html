@@ -3,59 +3,41 @@
 
 {% block content %}
 
-{# ── Hero ─────────────────────────────────────────────────────────────── #}
+{# ── Hero ──────────────────────────────────────────────────────────────── #}
 <section class="hero">
   <div class="hero-text">
     <p class="eyebrow">{{ today }}</p>
-    <h1>Weekly Roster</h1>
-    <p class="hero-sub">
-      {{ total }} worker{{ '' if total == 1 else 's' }} on file.
-      Auto-allocate assigns every worker to a shift every day with
-      <strong>1 day off</strong> per person per week.
-    </p>
+    <h1>{% if view_mode == 'daily' %}{{ current_day }}{% else %}Weekly Roster{% endif %}</h1>
   </div>
   <div class="hero-actions">
     <form action="{{ url_for('allocate') }}" method="post">
       <input type="hidden" name="view" value="{{ view_mode }}">
       <input type="hidden" name="day"  value="{{ current_day }}">
-      <button type="submit" class="btn btn-primary">⚡ Auto-allocate week</button>
+      <button type="submit" class="btn btn-primary">⚡ Auto-allocate</button>
     </form>
-    <a href="{{ url_for('export_schedule') }}" class="btn btn-ghost">Export to Excel</a>
+    <a href="{{ url_for('export_schedule') }}" class="btn btn-ghost">↓ Excel</a>
     <form action="{{ url_for('reset') }}" method="post"
           onsubmit="return confirm('Clear all weekly assignments?');">
       <input type="hidden" name="view" value="{{ view_mode }}">
       <input type="hidden" name="day"  value="{{ current_day }}">
-      <button type="submit" class="btn btn-text">Clear week</button>
+      <button type="submit" class="btn btn-text">Clear</button>
     </form>
   </div>
 </section>
 
-{# ── View-mode toggle ─────────────────────────────────────────────────── #}
-<div class="view-toggle-bar">
-  <a href="{{ url_for('index', view='daily',  day=current_day) }}"
-     class="vtog {{ 'vtog-active' if view_mode=='daily' }}">
-    📅 Daily view
-  </a>
-  <a href="{{ url_for('index', view='weekly', day=current_day) }}"
-     class="vtog {{ 'vtog-active' if view_mode=='weekly' }}">
-    🗓 Weekly grid
-  </a>
-</div>
-
 {# ═══════════════════════════════════════════════════════════════════════ #}
-{# DAILY VIEW                                                             #}
+{# DAILY VIEW — accessed only by clicking a weekday header               #}
 {# ═══════════════════════════════════════════════════════════════════════ #}
 {% if view_mode == 'daily' %}
 
-{# Weekday tabs #}
-<div class="day-tabs-wrap">
+<div class="back-bar">
+  <a href="{{ url_for('index') }}" class="back-link">← Weekly view</a>
   <nav class="day-tabs" aria-label="Select day">
     {% for d in days %}
     <a href="{{ url_for('index', view='daily', day=d) }}"
        class="day-tab {{ 'day-tab-active' if current_day == d }}"
        id="tab-{{ d }}">
       <span class="dt-short">{{ d[:3] }}</span>
-      <span class="dt-long">{{ d }}</span>
     </a>
     {% endfor %}
   </nav>
@@ -77,7 +59,8 @@
 </section>
 
 {# Shift cards #}
-<section class="board" style="--shift-count:{{ configs|length }}">
+<style>#shift-board { --shift-count: {{ configs|length }}; }</style>
+<section class="board" id="shift-board">
   {% for cfg in configs %}
   <div class="shift-card shift-{{ cfg.code|lower }}">
     <div class="shift-card-head">
@@ -135,7 +118,7 @@
   <section class="status-bucket">
     <h3 class="bucket-head">
       <span class="bucket-dot dot-idle"></span>
-      Idle / Unassigned <span class="muted">({{ unassigned|length }})</span>
+      Unassigned <span class="muted">({{ unassigned|length }})</span>
     </h3>
     <ul class="worker-list worker-list-inline">
       {% for w in unassigned|sort(attribute='name') %}
@@ -147,18 +130,37 @@
 </div>
 
 {# ═══════════════════════════════════════════════════════════════════════ #}
-{# WEEKLY GRID VIEW                                                        #}
+{# WEEKLY GRID VIEW — default                                              #}
 {# ═══════════════════════════════════════════════════════════════════════ #}
 {% else %}
 
-<section class="weekly-table-wrap">
+<div class="weekly-toolbar">
+  <span class="wt-label">{{ total }} worker{{ '' if total == 1 else 's' }}</span>
+  <div class="export-btns">
+    <button class="btn-export" onclick="downloadImage()" title="Save as PNG">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      Image
+    </button>
+    <button class="btn-export" onclick="downloadPDF()" title="Save as PDF">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      PDF
+    </button>
+  </div>
+</div>
+
+<section class="weekly-table-wrap" id="weekly-grid">
   <div class="table-overflow">
     <table class="weekly-table">
       <thead>
         <tr>
           <th class="wt-name-col">Worker</th>
           {% for d in days %}
-          <th class="wt-day-col {{ 'wt-today' if d == today_weekday }}">{{ d }}</th>
+          <th class="wt-day-col {{ 'wt-today' if d == today_weekday }}">
+            <a href="{{ url_for('index', view='daily', day=d) }}" class="day-header-link">
+              <span class="dhl-short">{{ d[:3] }}</span>
+              <span class="dhl-long">{{ d }}</span>
+            </a>
+          </th>
           {% endfor %}
         </tr>
       </thead>
@@ -169,19 +171,17 @@
           {% for d in days %}
           {% set code = row.days[d] %}
           <td class="wt-cell">
-            {% if code == 'AM' %}
-              <span class="wcell wcell-am">AM</span>
-            {% elif code == 'SWING' %}
-              <span class="wcell wcell-swing">SWING</span>
-            {% elif code == 'PM' %}
-              <span class="wcell wcell-pm">PM</span>
-            {% elif code == 'OFF' %}
-              <span class="wcell wcell-off">OFF</span>
-            {% elif code == 'LEAVE' %}
-              <span class="wcell wcell-leave">LEAVE</span>
-            {% else %}
-              <span class="wcell wcell-none">—</span>
-            {% endif %}
+            <select
+              class="shift-select shift-select-{{ code|lower }}"
+              data-worker-id="{{ row.worker.id }}"
+              data-day="{{ d }}"
+              onchange="handleShiftChange(this)"
+              aria-label="{{ row.worker.name }} {{ d }} shift"
+            >
+              {% for opt in ['—', 'AM', 'SWING', 'PM', 'OFF', 'LEAVE'] %}
+              <option value="{{ opt }}" {% if code == opt %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
           </td>
           {% endfor %}
         </tr>
@@ -198,4 +198,8 @@
 </section>
 
 {% endif %}
+
+{# Toast notification #}
+<div id="toast" class="toast" aria-live="polite"></div>
+
 {% endblock %}

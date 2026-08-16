@@ -161,8 +161,8 @@ body {
 
 .hero h1 {
   font-family: var(--font-display);
-  font-size: 2.4rem;
-  margin: 0 0 10px;
+  font-size: 1.9rem;
+  margin: 0 0 6px;
   letter-spacing: -0.02em;
 }
 
@@ -171,6 +171,7 @@ body {
   max-width: 46ch;
   line-height: 1.55;
   margin: 0;
+  display: none;
 }
 
 .hero-sub strong {
@@ -770,6 +771,7 @@ body {
 
 .capacity-input {
   -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* settings footer */
@@ -833,6 +835,186 @@ body {
     transition: none;
   }
 }
+
+/* ================================================================
+   BACK BAR (daily view navigation)
+   ================================================================ */
+.back-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.back-link {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.back-link:hover { color: var(--text); }
+
+/* compact day tabs for daily view */
+.back-bar .day-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.back-bar .day-tab {
+  padding: 6px 12px;
+  min-width: auto;
+  flex: none;
+}
+
+/* ================================================================
+   DAY HEADER LINKS (weekly grid → daily drill-down)
+   ================================================================ */
+.day-header-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: inherit;
+  padding: 4px 2px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.day-header-link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.dhl-short {
+  font-family: var(--font-mono);
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.dhl-long {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.wt-today .dhl-short { color: var(--am); }
+.wt-today .dhl-long  { color: var(--am); opacity: 0.7; }
+
+/* ================================================================
+   WEEKLY TOOLBAR (label + export buttons)
+   ================================================================ */
+.weekly-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.wt-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.export-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-export:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+/* ================================================================
+   SHIFT SELECT DROPDOWNS (weekly grid cells)
+   ================================================================ */
+.wt-cell {
+  padding: 6px 8px !important;
+}
+
+.shift-select {
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 22px 4px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%238b90a8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px;
+}
+
+.shift-select:focus {
+  box-shadow: 0 0 0 2px var(--am);
+}
+
+.shift-select option {
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+/* colour variants */
+.shift-select-am    { background-color: var(--am-soft);    color: var(--am);       border-color: transparent; }
+.shift-select-swing { background-color: var(--swing-soft); color: var(--swing);    border-color: transparent; }
+.shift-select-pm    { background-color: var(--pm-soft);    color: #a9b3e8;         border-color: transparent; }
+.shift-select-off   { background-color: var(--surface-2);  color: var(--text-muted); border-color: var(--border); }
+.shift-select-leave { background-color: #2a1e0d;           color: #f2c48c;         border-color: #6b4a25; }
+.shift-select-—,
+.shift-select-none  { background-color: transparent;       color: var(--border);   border-color: transparent; }
+
+/* ================================================================
+   TOAST NOTIFICATION
+   ================================================================ */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 9999;
+}
+.toast-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-ok  { border-color: #3a5f4a; color: #a9d9bd; }
+.toast-err { border-color: #7a3030; color: #e8a0a0; }
 
 
 .shift-card {

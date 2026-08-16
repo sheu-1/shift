@@ -5,7 +5,7 @@ from datetime import datetime, date
 from types import SimpleNamespace
 
 from flask import (
-    Flask, render_template, request, redirect, url_for, flash, send_file
+    Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
 )
 from supabase import create_client, Client
 from openpyxl import Workbook, load_workbook
@@ -50,7 +50,7 @@ def get_shift_configs():
     if not supabase: return []
     try:
         res = supabase.table("shift_config").select("*").order("sort_order").execute()
-        return [SimpleNamespace(**d) for d in res.data]
+        return [SimpleNamespace(**d) for d in res.data]  # type: ignore[arg-type]
     except Exception as e:
         print(f"Error fetching shift configs: {e}")
         return []
@@ -70,7 +70,7 @@ def get_all_workers_with_assignments():
         res = supabase.table("worker").select("*, assignments:assignment(*)").order("name").execute()
         workers = []
         for d in res.data:
-            w = SimpleNamespace(**d)
+            w = SimpleNamespace(**d)  # type: ignore[arg-type]
             w.assignments = [SimpleNamespace(**a) for a in getattr(w, 'assignments', [])]
             workers.append(w)
         return workers
@@ -122,9 +122,9 @@ def name_exists(name):
 def index():
     configs = get_shift_configs()
 
-    view_mode = request.args.get("view", "daily")
+    view_mode = request.args.get("view", "weekly")
     if view_mode not in ("daily", "weekly"):
-        view_mode = "daily"
+        view_mode = "weekly"
 
     current_day = request.args.get("day", date.today().strftime("%A"))
     if current_day not in DAYS:
@@ -234,7 +234,7 @@ def allocate():
 
     flash("Weekly shifts auto-allocated — every worker has 1 day off.", "success")
 
-    view  = request.form.get("view", "daily")
+    view  = request.form.get("view", "weekly")
     cday  = request.form.get("day", date.today().strftime("%A"))
     return redirect(url_for("index", view=view, day=cday))
 
@@ -244,9 +244,56 @@ def reset():
     if supabase:
         supabase.table("assignment").delete().neq("id", -1).execute()
     flash("All weekly shift assignments cleared.", "info")
-    view = request.form.get("view", "daily")
+    view = request.form.get("view", "weekly")
     cday = request.form.get("day", date.today().strftime("%A"))
     return redirect(url_for("index", view=view, day=cday))
+
+
+@app.route("/assign", methods=["POST"])
+def assign_shift():
+    """AJAX endpoint: update a single worker/day shift assignment."""
+    if not supabase:
+        return jsonify({"ok": False, "error": "Supabase not configured."}), 500
+
+    data = request.get_json(force=True)
+    worker_id  = data.get("worker_id")
+    day        = data.get("day")
+    shift_code = data.get("shift_code")  # may be None / "" for unassigned
+
+    try:
+        worker_id = int(worker_id)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Invalid worker_id."}), 400
+
+    if not worker_id or not day or day not in DAYS:
+        return jsonify({"ok": False, "error": "Invalid parameters."}), 400
+
+    # Normalise empty string to None
+    if shift_code == "" or shift_code == "—":
+        shift_code = None
+
+    try:
+        # Check if an assignment row already exists
+        res = supabase.table("assignment") \
+            .select("id") \
+            .eq("worker_id", worker_id) \
+            .eq("day", day) \
+            .execute()
+
+        if res.data:
+            row_id = res.data[0]["id"]
+            supabase.table("assignment") \
+                .update({"shift_code": shift_code}) \
+                .eq("id", row_id) \
+                .execute()
+        else:
+            supabase.table("assignment") \
+                .insert({"worker_id": worker_id, "day": day, "shift_code": shift_code}) \
+                .execute()
+
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # -------------------------------------------------------- settings page --
