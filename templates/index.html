@@ -178,7 +178,7 @@
               onchange="handleShiftChange(this)"
               aria-label="{{ row.worker.name }} {{ d }} shift"
             >
-              {% for opt in ['—', 'AM', 'SWING', 'PM', 'OFF', 'LEAVE', 'SO'] %}
+              {% for opt in ['—', 'AM', 'SWING', 'PM', 'OFF', 'LEAVE', 'SO', 'ST'] %}
               <option value="{{ opt }}" {% if code == opt %}selected{% endif %}>{{ opt }}</option>
               {% endfor %}
             </select>
