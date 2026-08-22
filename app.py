@@ -609,8 +609,8 @@ def export_schedule():
         "PM":    PatternFill("solid", fgColor="5C6BC0"),
         "OFF":   PatternFill("solid", fgColor="E2E4E9"),
         "LEAVE": PatternFill("solid", fgColor="A6ADB5"),
-        "SO":    PatternFill("solid", fgColor="E88B8B"),
-        "ST":    PatternFill("solid", fgColor="66C2C2"),
+        "SO":    PatternFill("solid", fgColor="E84A6A"),
+        "ST":    PatternFill("solid", fgColor="4AE870"),
     }
     DARK_TEXT = {"PM", "LEAVE"}
 
