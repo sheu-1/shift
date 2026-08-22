@@ -7,15 +7,35 @@
     <p class="eyebrow">Administration</p>
     <h1>Shift settings</h1>
     <p class="hero-sub">
-      Configure each shift's <strong>label</strong>, <strong>hours</strong>, and
+      Configure the <strong>global date range</strong>, each shift's <strong>label</strong>, <strong>hours</strong>, and
       <strong>worker capacity</strong>. Use the Leave section below to mark which days
       each worker is off on leave — those days are excluded from scheduling automatically.
     </p>
   </div>
 </section>
 
-{# ── Shift configuration ───────────────────────────────────────────────── #}
+{# ── Roster Settings ────────────────────────────────────────────────────── #}
 <form action="{{ url_for('settings_save') }}" method="post">
+  <div class="settings-grid" style="margin-bottom: 24px;">
+    <div class="settings-card" style="grid-column: 1 / -1;">
+      <div class="settings-card-header">
+        <span class="settings-badge" style="background: var(--primary);">Global</span>
+        <h2>Roster Date Range</h2>
+      </div>
+      <div class="settings-fields">
+        <div class="settings-field-row">
+          <div class="settings-field">
+            <label for="roster_start">Start Date</label>
+            <input type="date" id="roster_start" name="roster_start" value="{{ start_date if start_date else '' }}" required>
+          </div>
+          <div class="settings-field">
+            <label for="roster_end">End Date</label>
+            <input type="date" id="roster_end" name="roster_end" value="{{ end_date if end_date else '' }}" required>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="settings-grid">
     {% for cfg in configs %}
     <div class="settings-card settings-card-{{ cfg.code|lower }}">

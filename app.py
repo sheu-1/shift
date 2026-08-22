@@ -1,7 +1,7 @@
 import io
 import os
 import random
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from types import SimpleNamespace
 
 from flask import (
@@ -24,7 +24,60 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     print("WARNING: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set!")
 
-DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+# ------------------------------------------------------------- config --
+def get_roster_date_range():
+    if not supabase: return None, None
+    try:
+        res = supabase.table("worker").select("name").ilike("name", "___CONFIG___|%").execute()
+        if res.data:
+            name_val = res.data[0].get("name", "")
+            parts = name_val.split("|")
+            if len(parts) == 3:
+                return parts[1], parts[2]
+    except Exception as e:
+        print(f"Error fetching config: {e}")
+    return None, None
+
+def set_roster_date_range(start_date, end_date):
+    if not supabase: return
+    try:
+        res = supabase.table("worker").select("id").ilike("name", "___CONFIG___|%").execute()
+        if res.data:
+            supabase.table("worker").update({"name": f"___CONFIG___|{start_date}|{end_date}"}).eq("id", res.data[0]["id"]).execute()
+        else:
+            supabase.table("worker").insert({"name": f"___CONFIG___|{start_date}|{end_date}"}).execute()
+    except Exception as e:
+        print(f"Error saving config: {e}")
+
+def get_dynamic_days():
+    start_str, end_str = get_roster_date_range()
+    today = date.today()
+    if start_str and end_str:
+        try:
+            start_d = datetime.strptime(start_str, "%Y-%m-%d").date()
+            end_d = datetime.strptime(end_str, "%Y-%m-%d").date()
+        except ValueError:
+            start_d, end_d = today, today + timedelta(days=6)
+    else:
+        start_d, end_d = today, today + timedelta(days=6)
+    
+    if end_d < start_d:
+        end_d = start_d
+        
+    days = []
+    curr = start_d
+    while curr <= end_d:
+        days.append(curr.strftime("%Y-%m-%d"))
+        curr += timedelta(days=1)
+    return days
+
+def format_day_short(d_str):
+    try:
+        d = datetime.strptime(d_str, "%Y-%m-%d")
+        return d.strftime("%d %a")
+    except:
+        return d_str
+
 
 _DEFAULT_SHIFTS = [
     dict(code="AM",    label="AM Shift",    start_time="6:00 AM",  end_time="3:00 PM",  capacity=3, sort_order=0),
@@ -67,7 +120,7 @@ def worker_leave_set(worker):
 def get_all_workers_with_assignments():
     if not supabase: return []
     try:
-        res = supabase.table("worker").select("*, assignments:assignment(*)").order("name").execute()
+        res = supabase.table("worker").select("*, assignments:assignment(*)").not_.ilike("name", "___CONFIG___|%").order("name").execute()
         workers = []
         for d in res.data:
             w = SimpleNamespace(**d)  # type: ignore[arg-type]
@@ -79,8 +132,8 @@ def get_all_workers_with_assignments():
         return []
 
 
-def grouped_workers_for_day(day):
-    """Return (groups, unassigned, off_workers, leave_workers, all_workers) for a given weekday."""
+def grouped_workers_for_day(day_str):
+    """Return (groups, unassigned, off_workers, leave_workers, all_workers) for a given date."""
     configs    = get_shift_configs()
     codes      = [c.code for c in configs]
     all_workers = get_all_workers_with_assignments()
@@ -91,7 +144,7 @@ def grouped_workers_for_day(day):
     leave_workers = []
 
     for w in all_workers:
-        assign = next((a for a in w.assignments if a.day == day), None)
+        assign = next((a for a in w.assignments if a.day == day_str), None)
         if assign:
             if assign.shift_code in groups:
                 groups[assign.shift_code].append(w)
@@ -102,8 +155,13 @@ def grouped_workers_for_day(day):
             else:
                 unassigned.append(w)
         else:
-            # No assignment yet — classify by leave settings
-            if day in worker_leave_set(w):
+            # Check leave day by weekday name for backwards compatibility
+            try:
+                dt = datetime.strptime(day_str, "%Y-%m-%d")
+                weekday_name = dt.strftime("%A")
+            except:
+                weekday_name = day_str
+            if weekday_name in worker_leave_set(w):
                 leave_workers.append(w)
             else:
                 unassigned.append(w)
@@ -126,9 +184,12 @@ def index():
     if view_mode not in ("daily", "weekly"):
         view_mode = "weekly"
 
-    current_day = request.args.get("day", date.today().strftime("%A"))
-    if current_day not in DAYS:
-        current_day = DAYS[0]
+    days_list = get_dynamic_days()
+    days_formatted = {d: format_day_short(d) for d in days_list}
+    
+    current_day = request.args.get("day")
+    if current_day not in days_list:
+        current_day = days_list[0] if days_list else date.today().strftime("%Y-%m-%d")
 
     groups, unassigned, off_workers, leave_workers, all_workers = grouped_workers_for_day(current_day)
 
@@ -138,13 +199,18 @@ def index():
         assign_map = {a.day: (a.shift_code or "—") for a in w.assignments}
         leaves = worker_leave_set(w)
         row = {"worker": w, "days": {}}
-        for d in DAYS:
+        for d in days_list:
             if d in assign_map:
                 row["days"][d] = assign_map[d]
-            elif d in leaves:
-                row["days"][d] = "LEAVE"
             else:
-                row["days"][d] = "—"
+                try:
+                    weekday_name = datetime.strptime(d, "%Y-%m-%d").strftime("%A")
+                except:
+                    weekday_name = d
+                if weekday_name in leaves:
+                    row["days"][d] = "LEAVE"
+                else:
+                    row["days"][d] = "—"
         weekly_schedule.append(row)
 
     return render_template(
@@ -157,8 +223,9 @@ def index():
         shift_meta=shift_meta_dict(),
         total=len(all_workers),
         today=date.today().strftime("%A, %d %B %Y"),
-        today_weekday=date.today().strftime("%A"),
-        days=DAYS,
+        today_iso=date.today().strftime("%Y-%m-%d"),
+        days=days_list,
+        days_formatted=days_formatted,
         current_day=current_day,
         view_mode=view_mode,
         weekly_schedule=weekly_schedule,
@@ -177,9 +244,11 @@ def allocate():
         return redirect(url_for("index"))
 
     configs = get_shift_configs()
+    days_list = get_dynamic_days()
 
-    # Wipe existing weekly assignments
-    supabase.table("assignment").delete().neq("id", -1).execute()
+    # Wipe existing assignments for the CURRENT date range to preserve history
+    if days_list:
+        supabase.table("assignment").delete().in_("day", days_list).execute()
 
     workers_list = list(workers)
     random.shuffle(workers_list)  # initial fairness shuffle
@@ -197,11 +266,19 @@ def allocate():
     # ── Step 2: Spread OFF days evenly across the week ───────────────────
     # Always pick the day that currently has the fewest offs so that no
     # single day ends up short-staffed (6/7 days worked per person).
-    day_off_count = {d: 0 for d in DAYS}
+    day_off_count = {d: 0 for d in days_list}
     off_day_map = {}   # worker_id -> off_day
 
     for w in workers_list:
-        available_days = [d for d in DAYS if d not in leave_map[w.id]]
+        available_days = []
+        for d in days_list:
+            try:
+                weekday_name = datetime.strptime(d, "%Y-%m-%d").strftime("%A")
+            except:
+                weekday_name = d
+            if weekday_name not in leave_map[w.id]:
+                available_days.append(d)
+        
         if not available_days:
             continue  # fully on leave
         # Pick day with fewest offs; random tiebreak for variety
@@ -218,12 +295,16 @@ def allocate():
         w.id: {cfg.code: 0 for cfg in configs} for w in workers_list
     }
 
-    for d in DAYS:
+    for d in days_list:
         # Workers available to work today
-        active = [
-            w for w in workers_list
-            if d not in leave_map[w.id] and off_day_map.get(w.id) != d
-        ]
+        active = []
+        for w in workers_list:
+            try:
+                weekday_name = datetime.strptime(d, "%Y-%m-%d").strftime("%A")
+            except:
+                weekday_name = d
+            if weekday_name not in leave_map[w.id] and off_day_map.get(w.id) != d:
+                active.append(w)
 
         # Build slot list and shuffle so no shift type always drafts first
         slots = []
@@ -254,17 +335,19 @@ def allocate():
     flash("Shifts allocated — 1 day off per worker, workload and shifts balanced.", "success")
 
     view = request.form.get("view", "weekly")
-    cday = request.form.get("day", date.today().strftime("%A"))
+    cday = request.form.get("day", days_list[0] if days_list else date.today().strftime("%Y-%m-%d"))
     return redirect(url_for("index", view=view, day=cday))
 
 
 @app.route("/reset", methods=["POST"])
 def reset():
     if supabase:
-        supabase.table("assignment").delete().neq("id", -1).execute()
-    flash("All weekly shift assignments cleared.", "info")
+        days_list = get_dynamic_days()
+        if days_list:
+            supabase.table("assignment").delete().in_("day", days_list).execute()
+    flash("Shift assignments for the current date range cleared.", "info")
     view = request.form.get("view", "weekly")
-    cday = request.form.get("day", date.today().strftime("%A"))
+    cday = request.form.get("day", days_list[0] if days_list else date.today().strftime("%Y-%m-%d"))
     return redirect(url_for("index", view=view, day=cday))
 
 
@@ -284,7 +367,7 @@ def assign_shift():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "Invalid worker_id."}), 400
 
-    if not worker_id or not day or day not in DAYS:
+    if not worker_id or not day:
         return jsonify({"ok": False, "error": "Invalid parameters."}), 400
 
     # Normalise empty string to None
@@ -321,7 +404,9 @@ def assign_shift():
 def settings():
     configs = get_shift_configs()
     workers = get_all_workers_with_assignments()
-    return render_template("settings.html", configs=configs, workers=workers, days=DAYS)
+    start_date, end_date = get_roster_date_range()
+    return render_template("settings.html", configs=configs, workers=workers, 
+                           start_date=start_date, end_date=end_date, days=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
 
 
 @app.route("/settings/save", methods=["POST"])
@@ -354,11 +439,17 @@ def settings_save():
                 "capacity": cap
             }).eq("id", cfg.id).execute()
 
+    # Roster Date Range Save
+    roster_start = request.form.get("roster_start", "").strip()
+    roster_end = request.form.get("roster_end", "").strip()
+    if roster_start and roster_end:
+        set_roster_date_range(roster_start, roster_end)
+
     if errors:
         for e in errors:
             flash(e, "warning")
     else:
-        flash("Shift settings saved successfully.", "success")
+        flash("Settings saved successfully.", "success")
 
     return redirect(url_for("settings"))
 
@@ -366,8 +457,9 @@ def settings_save():
 @app.route("/settings/leave", methods=["POST"])
 def settings_leave():
     workers = get_all_workers_with_assignments()
+    WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     for w in workers:
-        chosen = [d for d in DAYS if request.form.get(f"leave_{w.id}_{d}")]
+        chosen = [d for d in WEEKDAYS if request.form.get(f"leave_{w.id}_{d}")]
         leave_str = ",".join(chosen)
         if supabase:
             supabase.table("worker").update({"leave_days": leave_str}).eq("id", w.id).execute()
@@ -381,8 +473,8 @@ def settings_leave():
 @app.route("/workers")
 def workers():
     all_workers = get_all_workers_with_assignments()
-    # For the badge column use Monday as a reference day
-    groups, _, _, _, _ = grouped_workers_for_day("Monday")
+    # For the badge column use today as a reference day
+    groups, _, _, _, _ = grouped_workers_for_day(date.today().strftime("%Y-%m-%d"))
     return render_template(
         "workers.html",
         all_workers=all_workers,
@@ -536,7 +628,8 @@ def export_schedule():
     sheet["A1"].alignment = left
     sheet.row_dimensions[1].height = 28
 
-    headers = ["Worker Name"] + DAYS
+    days_list = get_dynamic_days()
+    headers = ["Worker Name"] + [format_day_short(d) for d in days_list]
     sheet.row_dimensions[3].height = 24
     for ci, h in enumerate(headers, start=1):
         c = sheet.cell(row=3, column=ci, value=h)
@@ -555,13 +648,18 @@ def export_schedule():
         assign_map = {a.day: (a.shift_code or "—") for a in w.assignments}
         leaves     = worker_leave_set(w)
 
-        for ci, day in enumerate(DAYS, start=2):
-            if day in assign_map:
-                val = assign_map[day]
-            elif day in leaves:
-                val = "LEAVE"
+        for ci, day_str in enumerate(days_list, start=2):
+            if day_str in assign_map:
+                val = assign_map[day_str]
             else:
-                val = "—"
+                try:
+                    weekday_name = datetime.strptime(day_str, "%Y-%m-%d").strftime("%A")
+                except:
+                    weekday_name = day_str
+                if weekday_name in leaves:
+                    val = "LEAVE"
+                else:
+                    val = "—"
 
             cell = sheet.cell(row=ri, column=ci, value=val)
             cell.alignment = center; cell.border = border

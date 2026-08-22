@@ -37,7 +37,7 @@
     <a href="{{ url_for('index', view='daily', day=d) }}"
        class="day-tab {{ 'day-tab-active' if current_day == d }}"
        id="tab-{{ d }}">
-      <span class="dt-short">{{ d[:3] }}</span>
+      <span class="dt-short">{{ days_formatted[d] }}</span>
     </a>
     {% endfor %}
   </nav>
@@ -155,10 +155,10 @@
         <tr>
           <th class="wt-name-col">Worker</th>
           {% for d in days %}
-          <th class="wt-day-col {{ 'wt-today' if d == today_weekday }}">
+          <th class="wt-day-col {{ 'wt-today' if d == today_iso }}">
             <a href="{{ url_for('index', view='daily', day=d) }}" class="day-header-link">
-              <span class="dhl-short">{{ d[:3] }}</span>
-              <span class="dhl-long">{{ d }}</span>
+              <span class="dhl-short">{{ days_formatted[d].split(' ')[0] }}</span>
+              <span class="dhl-long">{{ days_formatted[d].split(' ')[1] }}</span>
             </a>
           </th>
           {% endfor %}
