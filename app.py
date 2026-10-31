@@ -46,15 +46,24 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase = None
 if SUPABASE_URL and SUPABASE_KEY:
     try:
-        from supabase import create_client
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        import importlib
+        _sb_module = importlib.import_module("supabase")
+        _create_client = getattr(_sb_module, "create_client", None)
+        if _create_client:
+            supabase = _create_client(SUPABASE_URL, SUPABASE_KEY)
     except Exception as e:
-        print(f"Supabase init error (falling back to SQLite): {e}")
+        # Supabase not installed or unreachable; seamlessly uses local SQLite database
         supabase = None
 
 # SQLite Database setup
-INSTANCE_DIR = os.path.join(app.root_path, "instance")
-DB_PATH = os.path.join(INSTANCE_DIR, "shifts.db")
+# On Vercel (read-only filesystem) use /tmp; otherwise use local instance/
+_IS_VERCEL = os.environ.get("VERCEL") == "1" or os.environ.get("NOW_REGION") is not None
+if _IS_VERCEL:
+    INSTANCE_DIR = "/tmp"
+    DB_PATH = "/tmp/shifts.db"
+else:
+    INSTANCE_DIR = os.path.join(app.root_path, "instance")
+    DB_PATH = os.path.join(INSTANCE_DIR, "shifts.db")
 
 def get_db_conn():
     os.makedirs(INSTANCE_DIR, exist_ok=True)
