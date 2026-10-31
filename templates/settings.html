@@ -5,19 +5,20 @@
 <section class="hero">
   <div class="hero-text">
     <p class="eyebrow">Administration</p>
-    <h1>Shift settings</h1>
+    <h1>Shift &amp; AI Settings</h1>
     <p class="hero-sub">
-      Configure the <strong>global date range</strong>, each shift's <strong>label</strong>, <strong>hours</strong>, and
-      <strong>worker capacity</strong>. Use the Leave section below to mark which days
-      each worker is off on leave — those days are excluded from scheduling automatically.
+      Configure the <strong>global date range</strong>, each shift's <strong>label</strong>, <strong>hours</strong>,
+      <strong>worker capacity</strong>, and the <strong>OpenRouter AI Assistant</strong>.
+      Use the Leave section below to mark which days each worker is off on leave.
     </p>
   </div>
 </section>
 
-{# ── Roster Settings ────────────────────────────────────────────────────── #}
+{# ── Roster & AI Settings Form ────────────────────────────────────────── #}
 <form action="{{ url_for('settings_save') }}" method="post">
   <div class="settings-grid" style="margin-bottom: 24px;">
-    <div class="settings-card" style="grid-column: 1 / -1;">
+    {# Global Date Range Card #}
+    <div class="settings-card">
       <div class="settings-card-header">
         <span class="settings-badge" style="background: var(--primary);">Global</span>
         <h2>Roster Date Range</h2>
@@ -35,7 +36,49 @@
         </div>
       </div>
     </div>
+
+    {# OpenRouter AI Assistant Card #}
+    <div class="settings-card">
+      <div class="settings-card-header">
+        <span class="settings-badge" style="background: #6366f1;">OpenRouter AI</span>
+        <h2>AI Assistant Setup</h2>
+      </div>
+      <div class="settings-fields">
+        <div class="settings-field">
+          <label for="openrouter_api_key">
+            OpenRouter API Key
+            <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" style="margin-left: 8px; font-size: 0.78rem; color: #818cf8; text-decoration: underline;">Get free key ↗</a>
+          </label>
+          <input type="password" id="openrouter_api_key" name="openrouter_api_key" value="{{ openrouter_key }}" placeholder="sk-or-v1-..." autocomplete="off">
+        </div>
+        <div class="settings-field">
+          <label for="openrouter_model">Preferred Model (Free Tier)</label>
+          <select id="openrouter_model" name="openrouter_model">
+            <option value="meta-llama/llama-3.3-70b-instruct:free" {% if openrouter_model == 'meta-llama/llama-3.3-70b-instruct:free' %}selected{% endif %}>meta-llama/llama-3.3-70b-instruct:free (Default &amp; Recommended)</option>
+            <option value="google/gemini-2.0-flash-exp:free" {% if openrouter_model == 'google/gemini-2.0-flash-exp:free' %}selected{% endif %}>google/gemini-2.0-flash-exp:free</option>
+            <option value="deepseek/deepseek-r1:free" {% if openrouter_model == 'deepseek/deepseek-r1:free' %}selected{% endif %}>deepseek/deepseek-r1:free</option>
+            <option value="mistralai/mistral-small-24b-instruct-2501:free" {% if openrouter_model == 'mistralai/mistral-small-24b-instruct-2501:free' %}selected{% endif %}>mistralai/mistral-small-24b-instruct-2501:free</option>
+            <option value="qwen/qwen-2.5-coder-32b-instruct:free" {% if openrouter_model == 'qwen/qwen-2.5-coder-32b-instruct:free' %}selected{% endif %}>qwen/qwen-2.5-coder-32b-instruct:free</option>
+          </select>
+        </div>
+      </div>
+    </div>
   </div>
+
+  {# AI System Prompt & Rules Info Card #}
+  <div class="rules-card" style="margin-bottom: 24px; padding: 18px 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom: 10px;">
+      <span style="font-size: 1.2rem;">📋</span>
+      <h3 style="margin:0; font-size: 1.05rem; font-weight:600;">Active System Prompt Rules</h3>
+    </div>
+    <ul style="margin: 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.6; color: var(--text-muted);">
+      <li><strong>Post-OFF PM Transition:</strong> When staff are coming from their OFF day, if working, they only enter <strong>PM</strong> shifts.</li>
+      <li><strong>Young Babies Care:</strong> <strong>Jacky</strong> and <strong>Eunice</strong> (Equnice) have young babies at home, so they only enter <strong>AM</strong> and <strong>SWING (SW)</strong> shifts (never PM).</li>
+      <li><strong>Balanced Shifts:</strong> PM and AM shifts are balanced across all eligible staff over the roster.</li>
+      <li><strong>Full Coverage:</strong> Every staff member must be allocated a status on every single day (Shift, <strong>OFF</strong>, <strong>LEAVE</strong>, <strong>SL</strong>, or <strong>PH</strong>). No empty cells.</li>
+    </ul>
+  </div>
+
   <div class="settings-grid">
     {% for cfg in configs %}
     <div class="settings-card settings-card-{{ cfg.code|lower }}">
@@ -98,7 +141,7 @@
       </strong>
       worker(s)
     </div>
-    <button type="submit" class="btn btn-primary">Save shift settings</button>
+    <button type="submit" class="btn btn-primary">Save all settings</button>
   </div>
 </form>
 
@@ -127,7 +170,12 @@
           {% for w in workers %}
           {% set wleaves = w.leave_days.split(',') if w.leave_days else [] %}
           <tr>
-            <td class="worker-name-cell">{{ w.name }}</td>
+            <td class="worker-name-cell">
+              {{ w.name }}
+              {% if 'jacky' in w.name|lower or 'jackie' in w.name|lower or 'eunice' in w.name|lower or 'equnice' in w.name|lower %}
+                <span class="baby-badge" style="margin-left: 6px; font-size: 0.72rem; padding: 2px 6px; background: #e0f2fe; color: #0284c7; border-radius: 4px; border: 1px solid #bae6fd;">👶 Baby care</span>
+              {% endif %}
+            </td>
             {% for d in days %}
             <td class="leave-check-cell">
               <label class="cb-wrap">

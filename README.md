@@ -5,14 +5,20 @@ three shifts: **AM** (6am–2pm), **Swing** (2pm–10pm), and **PM** (10pm–6am
 
 ## Features
 
+- **OpenRouter AI Chatbot**: Interactive shift scheduling assistant that allows natural language roster generation, shift swapping, and conversational adjustments.
+- **Strict Operational Rules**:
+  - **Post-OFF Transition**: Staff coming from an OFF day only enter PM shifts when working.
+  - **Baby Care Constraint**: Jacky and Eunice only enter AM and SWING (SW) shifts.
+  - **Balanced Workload**: Balanced PM and AM shifts across active staff.
+  - **Full Coverage**: Every staff member is allocated a shift or non-working status every day (Shift, OFF, LEAVE, SL, or PH).
+- **Public Holiday (PH) & Sick Leave (SL)** options with custom styling and export.
 - Add workers one at a time via a form
 - Bulk-import workers from an `.xlsx` file (a `Name` column, or just names in
   the first column) — a blank template is available for download in-app
-- One-click **Auto-allocate** button that spreads all workers evenly across
-  the three shifts
+- One-click **Auto-allocate** button that adheres to all operational rules
 - Dashboard with a 24-hour timeline strip and a live "now" marker, plus
-  color-coded shift columns
-- Export the current schedule as a styled `.xlsx` file
+  color-coded shift columns and live editable weekly grid
+- Export the current schedule as a styled `.xlsx` file, PNG image, or PDF
 - Remove workers, or clear all shift assignments and re-allocate
 
 ## Setup

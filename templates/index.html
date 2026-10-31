@@ -10,6 +10,9 @@
     <h1>{% if view_mode == 'daily' %}{{ current_day }}{% else %}Weekly Roster{% endif %}</h1>
   </div>
   <div class="hero-actions">
+    <button type="button" class="btn btn-ai" onclick="toggleAIChat()" title="Open AI Chat Assistant">
+      <span class="btn-sparkle">✨</span> AI Chatbot
+    </button>
     <form action="{{ url_for('allocate') }}" method="post">
       <input type="hidden" name="view" value="{{ view_mode }}">
       <input type="hidden" name="day"  value="{{ current_day }}">
@@ -114,6 +117,34 @@
   </section>
   {% endif %}
 
+  {% if sl_workers %}
+  <section class="status-bucket">
+    <h3 class="bucket-head">
+      <span class="bucket-dot dot-sl"></span>
+      Sick Leave (SL) <span class="muted">({{ sl_workers|length }})</span>
+    </h3>
+    <ul class="worker-list worker-list-inline">
+      {% for w in sl_workers|sort(attribute='name') %}
+        <li class="worker-chip chip-sl">{{ w.name }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if ph_workers %}
+  <section class="status-bucket">
+    <h3 class="bucket-head">
+      <span class="bucket-dot dot-ph"></span>
+      Public Holiday (PH) <span class="muted">({{ ph_workers|length }})</span>
+    </h3>
+    <ul class="worker-list worker-list-inline">
+      {% for w in ph_workers|sort(attribute='name') %}
+        <li class="worker-chip chip-ph">{{ w.name }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   {% if unassigned %}
   <section class="status-bucket">
     <h3 class="bucket-head">
@@ -135,7 +166,10 @@
 {% else %}
 
 <div class="weekly-toolbar">
-  <span class="wt-label">{{ total }} worker{{ '' if total == 1 else 's' }}</span>
+  <div class="wt-info">
+    <span class="wt-label">{{ total }} worker{{ '' if total == 1 else 's' }}</span>
+    <span class="wt-sub-label">Allocations automatically balance PM/AM and enforce baby-care &amp; post-off rules</span>
+  </div>
   <div class="export-btns">
     <button class="btn-export" onclick="downloadImage()" title="Save as PNG">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -167,7 +201,12 @@
       <tbody>
         {% for row in weekly_schedule %}
         <tr>
-          <td class="wt-name">{{ row.worker.name }}</td>
+          <td class="wt-name">
+            <span class="worker-name-label">{{ row.worker.name }}</span>
+            {% if 'jacky' in row.worker.name|lower or 'jackie' in row.worker.name|lower or 'eunice' in row.worker.name|lower or 'equnice' in row.worker.name|lower %}
+              <span class="baby-badge" title="Baby care constraint: AM / SWING only">👶 AM/SW</span>
+            {% endif %}
+          </td>
           {% for d in days %}
           {% set code = row.days[d] %}
           <td class="wt-cell">
@@ -178,7 +217,7 @@
               onchange="handleShiftChange(this)"
               aria-label="{{ row.worker.name }} {{ d }} shift"
             >
-              {% for opt in ['—', 'AM', 'SWING', 'PM', 'OFF', 'LEAVE', 'SO', 'ST'] %}
+              {% for opt in ['—', 'AM', 'SWING', 'PM', 'OFF', 'LEAVE', 'SL', 'PH', 'SO', 'ST'] %}
               <option value="{{ opt }}" {% if code == opt %}selected{% endif %}>{{ opt }}</option>
               {% endfor %}
             </select>
@@ -198,6 +237,114 @@
 </section>
 
 {% endif %}
+
+{# ── AI Shift Assistant Floating Button ──────────────────────────────────── #}
+<button id="ai-chat-fab" class="ai-chat-fab" onclick="toggleAIChat()" title="Open AI Shift Assistant">
+  <span class="fab-icon">✨</span>
+  <span class="fab-label">AI Assistant</span>
+</button>
+
+{# ── AI Shift Assistant Slide-Over Drawer ────────────────────────────────── #}
+<div id="ai-drawer-overlay" class="ai-drawer-overlay" onclick="toggleAIChat()"></div>
+
+<aside id="ai-chat-drawer" class="ai-chat-drawer" aria-label="AI Shift Assistant">
+  <div class="ai-drawer-header">
+    <div class="ai-header-left">
+      <span class="ai-sparkle-icon">✨</span>
+      <div>
+        <h3 class="ai-header-title">AI Shift Assistant</h3>
+        <span class="ai-model-badge" id="ai-active-model-badge">{{ openrouter_model.split('/')[-1] if openrouter_model else 'OpenRouter' }}</span>
+      </div>
+    </div>
+    <div class="ai-header-actions">
+      <button type="button" class="ai-header-btn" onclick="toggleAISettings()" title="Configure OpenRouter API Key &amp; Model">⚙️</button>
+      <button type="button" class="ai-header-btn" onclick="clearAIChat()" title="Clear Chat History">🗑️</button>
+      <button type="button" class="ai-header-btn" onclick="toggleAIChat()" title="Close Drawer">✕</button>
+    </div>
+  </div>
+
+  {# In-drawer Settings Panel (Collapsible) #}
+  <div id="ai-settings-panel" class="ai-settings-panel" style="display: none;">
+    <div class="ai-settings-inner">
+      <div class="ai-settings-head">
+        <h4>OpenRouter Configuration</h4>
+        <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" class="ai-key-link">Get Free Key ↗</a>
+      </div>
+      <p class="ai-settings-hint">Enter your OpenRouter key to chat with free models (Llama 3.3 70B, Gemini 2.0 Flash, etc.).</p>
+      
+      <div class="ai-field">
+        <label for="ai-key-input">OpenRouter API Key</label>
+        <div class="ai-key-input-wrap">
+          <input type="password" id="ai-key-input" placeholder="sk-or-v1-..." autocomplete="off">
+          <button type="button" class="ai-pw-toggle" onclick="toggleKeyVisibility()">👁️</button>
+        </div>
+      </div>
+
+      <div class="ai-field">
+        <label for="ai-model-select">Model (Free Tier)</label>
+        <select id="ai-model-select">
+          <option value="meta-llama/llama-3.3-70b-instruct:free" {% if openrouter_model == 'meta-llama/llama-3.3-70b-instruct:free' %}selected{% endif %}>meta-llama/llama-3.3-70b-instruct:free (Recommended)</option>
+          <option value="google/gemini-2.0-flash-exp:free" {% if openrouter_model == 'google/gemini-2.0-flash-exp:free' %}selected{% endif %}>google/gemini-2.0-flash-exp:free</option>
+          <option value="deepseek/deepseek-r1:free" {% if openrouter_model == 'deepseek/deepseek-r1:free' %}selected{% endif %}>deepseek/deepseek-r1:free</option>
+          <option value="mistralai/mistral-small-24b-instruct-2501:free" {% if openrouter_model == 'mistralai/mistral-small-24b-instruct-2501:free' %}selected{% endif %}>mistralai/mistral-small-24b-instruct-2501:free</option>
+          <option value="qwen/qwen-2.5-coder-32b-instruct:free" {% if openrouter_model == 'qwen/qwen-2.5-coder-32b-instruct:free' %}selected{% endif %}>qwen/qwen-2.5-coder-32b-instruct:free</option>
+        </select>
+      </div>
+
+      <div class="ai-settings-actions">
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveAISettings()">Save</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="toggleAISettings()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  {# Quick Prompt Action Chips #}
+  <div class="ai-chips-container">
+    <button type="button" class="ai-chip" onclick="sendQuickPrompt('Allocate the entire week adhering strictly to all system prompt rules.')">⚡ Auto-allocate Roster</button>
+    <button type="button" class="ai-chip" onclick="sendQuickPrompt('Verify and ensure that Jacky and Eunice only enter AM and SWING shifts, never PM.')">👶 Jacky &amp; Eunice (AM/SW)</button>
+    <button type="button" class="ai-chip" onclick="sendQuickPrompt('Check that any staff member coming from an OFF day only enters PM shifts.')">🌙 Post-OFF PM Rule</button>
+    <button type="button" class="ai-chip" onclick="sendQuickPrompt('Balance the PM and AM shifts across all eligible staff.')">⚖️ Balance PM &amp; AM</button>
+    <button type="button" class="ai-chip" onclick="sendQuickPrompt('Mark Friday as a Public Holiday (PH) for all staff members.')">🏖️ Mark PH</button>
+  </div>
+
+  {# Chat Messages Stream #}
+  <div id="ai-chat-messages" class="ai-messages-wrap">
+    <div class="ai-msg ai-msg-assistant">
+      <div class="ai-msg-avatar">✨</div>
+      <div class="ai-msg-content">
+        <div class="ai-bubble">
+          <p><strong>Hi there! I'm your AI Shift Assistant.</strong></p>
+          <p>You can talk to me to allocate shifts or adjust the schedule table currently on screen. I follow these strict operational rules:</p>
+          <ul>
+            <li><strong>Post-OFF rule:</strong> Staff coming from OFF only enter <strong>PM</strong> shifts.</li>
+            <li><strong>Young babies constraint:</strong> <strong>Jacky</strong> and <strong>Eunice</strong> only enter <strong>AM</strong> and <strong>SWING</strong> shifts (never PM).</li>
+            <li><strong>Fair balance:</strong> PM and AM shifts are balanced evenly.</li>
+            <li><strong>Full coverage:</strong> All staff receive an allocation every day (working shift, <strong>OFF</strong>, <strong>LEAVE</strong>, <strong>SL</strong>, or <strong>PH</strong>).</li>
+          </ul>
+          <p class="ai-hint-small">Try asking me: <em>"Allocate shifts for this week"</em>, <em>"Swap Allan and Laura on Tuesday"</em>, or click a quick prompt above!</p>
+        </div>
+        <span class="ai-msg-time">Ready</span>
+      </div>
+    </div>
+  </div>
+
+  {# Chat Input Box #}
+  <div class="ai-input-area">
+    <div class="ai-input-box">
+      <textarea id="ai-user-input" placeholder="Type a message or shift change request..." rows="1" onkeydown="handleChatKey(event)" oninput="autoResizeTextarea(this)"></textarea>
+      <button type="button" id="ai-send-btn" class="ai-send-btn" onclick="sendChatMessage()" title="Send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+    <div class="ai-input-footer">
+      <span>Shift changes apply live to the table</span>
+      <span>Enter ↵ to send</span>
+    </div>
+  </div>
+</aside>
 
 {# Toast notification #}
 <div id="toast" class="toast" aria-live="polite"></div>
